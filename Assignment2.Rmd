@@ -1,0 +1,293 @@
+---
+title: "Assignment2"
+author: "SEOUNG WOON SO (842364961)"
+date: "23 August 2016"
+output: word_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+Q1
+```{r 1a}
+gcd <- function(x,y) {
+  if(length(x) < length(y))
+    x = rep(x, length = length(y))
+  if(length(y) < length(x))
+    y = rep(y, length = length(x))
+  
+  remainder = x%%y
+  return(ifelse(remainder, gcd(y, remainder), y))
+}
+
+gcd(6, 15)
+gcd(6:10, 15:25)
+```
+
+Q2-a
+```{r}
+training = read.csv("training.csv")[, 2:39]
+test = read.csv("test.csv")[, 2:35]
+samples_training = read.table("samples.txt", header = TRUE)[1:38, ]
+samples_test = read.table("samples.txt", header = TRUE)[39:72, ]
+
+n1 = sum(samples_training$Class == "ALL")
+n2 = sum(samples_training$Class == "AML")
+s1 = apply(training[which(samples_training$Class == "ALL")], 1, var)
+s2 = apply(training[which(samples_training$Class == "AML")], 1, var)
+
+mean_class1 = apply(training[which(samples_training$Class == "ALL")], 1, mean)
+mean_class2 = apply(training[which(samples_training$Class == "AML")], 1, mean)
+sample_sd = (((n1-1) * s1 + (n2-1) * s2) / (n1+n2-2))^0.5
+
+# classifier#A
+norm_class1 = apply(test, 2, dnorm, m = mean_class1, sd = sample_sd, log = TRUE)
+result_class1 = apply(norm_class1, 2, sum)
+
+# classifier#B
+norm_class2 = apply(test, 2, dnorm, m = mean_class2, sd = sample_sd, log = TRUE)
+result_class2 = apply(norm_class2, 2, sum)
+
+# predict class labels
+predicted_test_class = ifelse(result_class1 > result_class2, "ALL", "AML")
+test_result = as.data.frame(matrix(c(names(test), predicted_test_class), ncol = 2))
+colnames(test_result) = c("Sample", "Predicted Result")
+test_result
+
+
+# evaluate
+evaluation = ifelse(predicted_test_class == samples_test[, 2], "Correct", "Wrong")
+table(evaluation)
+```
+
+Q2-b
+```{r}
+training = read.csv("training.csv")[, 2:39]
+test = read.csv("test.csv")[, 2:35]
+test_withID = read.csv("test.csv")
+samples_training = read.table("samples.txt", header = TRUE)[1:38, ]
+samples_test = read.table("samples.txt", header = TRUE)[39:72, ]
+
+n1 = sum(samples_training$Class == "ALL")
+n2 = sum(samples_training$Class == "AML")
+s1 = apply(training[which(samples_training$Class == "ALL")], 1, var)
+s2 = apply(training[which(samples_training$Class == "AML")], 1, var)
+
+mean_class1 = apply(training[which(samples_training$Class == "ALL")], 1, mean)
+mean_class2 = apply(training[which(samples_training$Class == "AML")], 1, mean)
+sample_sd = (((n1-1) * s1 + (n2-1) * s2) / (n1+n2-2))^0.5
+total_mean = apply(training, 1, mean)
+
+m_class1 = (1/n1 - 1/(n1+n2))^0.5
+m_class2 = (1/n2 - 1/(n1+n2))^0.5
+
+d_class1 = (mean_class1 - total_mean) / (m_class1 * sample_sd)
+d_class2 = (mean_class2 - total_mean) / (m_class2 * sample_sd)
+
+lamda = 6
+x = abs(d_class1) - lamda
+shrunken_d_class1 = sign(d_class1) *  ifelse(x > 0, x, 0) 
+x = abs(d_class2) - lamda
+shrunken_d_class2 = sign(d_class2) *  ifelse(x > 0, x, 0) 
+
+dummy_class1 = which(shrunken_d_class1 == 0)
+dummy_class2 = which(shrunken_d_class2 == 0)
+nopower_index = intersect(dummy_class1, dummy_class2)
+power_index = setdiff(1:7129, nopower_index)
+
+shrunken_m_class1 = total_mean + m_class1 * sample_sd * shrunken_d_class1
+shrunken_m_class2 = total_mean + m_class2 * sample_sd * shrunken_d_class2
+
+# classifier#A
+norm_class1 = apply(test[power_index, ], 2, dnorm, m = shrunken_m_class1[power_index], sd = sample_sd[power_index], log = TRUE)
+result_class1 = apply(norm_class1, 2, sum)
+
+# classifier#B
+norm_class2 = apply(test[power_index, ], 2, dnorm, m = shrunken_m_class2[power_index], sd = sample_sd[power_index], log = TRUE)
+result_class2 = apply(norm_class2, 2, sum)
+
+# predict class labels
+predicted_test_class = ifelse(result_class1 > result_class2, "ALL", "AML")
+test_result = as.data.frame(matrix(c(names(test), predicted_test_class), ncol = 2))
+colnames(test_result) = c("Sample", "Predicted Result")
+test_result
+
+# evaluate
+evaluation = ifelse(predicted_test_class == samples_test[, 2], "Correct", "Wrong")
+table(evaluation)
+
+# Genes having Predictive power
+as.data.frame(test_withID$Gene.Accession.Number[power_index])
+```
+
+Q3-a
+```{r}
+na = 172
+nb = 43
+nab = 11
+no = 279
+
+#po = (1-pa-pb)
+#theta[1] : pa
+#theta[2] : pb
+# Q = -1 * (na*log(pa^2 + 2*pa*po) + nb*log(pb^2 + 2*pb*po) + nab*log(2*pa*pb) + no*log(po^2))
+Qo = function(theta) {
+  pa = theta[1]
+  pb = theta[2]
+  po = 1 - pa - pb
+  param_A = (pa^2 + 2*pa*po)
+  param_B = (pb^2 + 2*pb*po)
+  param_AB = (2*pa*pb)
+  param_O = (po^2)
+  
+  if( !(po >= 0 & po <= 1) | !(pa >= 0 & pb <= 1) | !(pb >= 0 & pb <= 1)
+      | param_A <= 0
+      | param_B <= 0
+      | param_AB <= 0
+      | param_O <= 0 ) {
+    -Inf
+  }
+  else {
+    -1 * (na*log(param_A) + nb*log(param_B) + nab*log(param_AB) + no*log(param_O))
+  }
+}
+zo = optim(c(0.3, 0.3), Qo, method = "BFGS")
+#zo$convergence
+#zo$par
+# po = 1-pa-pb
+result_po = 1 - zo$par[1] - zo$par[2]
+
+result = as.data.frame(matrix(c(zo$par[1], zo$par[2], result_po, sum(zo$par[1], zo$par[2], result_po)), nrow = 4))
+row.names(result) = c("P(A)", "P(B)", "P(O)", "Total"); colnames(result) = "BFGS Result" 
+result
+```
+
+Q3-b
+```{r}
+library(numDeriv)
+na = 172
+nb = 43
+nab = 11
+no = 279
+
+#po = (1-pa-pb)
+#theta[1] : pa
+#theta[2] : pb
+# Q = -1 * (na*log(pa^2 + 2*pa*po) + nb*log(pb^2 + 2*pb*po) + nab*log(2*pa*pb) + no*log(po^2))
+# Q = -1 * (172*log(x^2 + 2*x*(1-x-y)) + 43*log(y^2 + 2*y*(1-x-y)) + 11*log(2*x*y) + 279*log((1-x-y)^2))
+Qo = function(theta) {
+  pa = theta[1]
+  pb = theta[2]
+  po = 1 - pa - pb
+  param_A = (pa^2 + 2*pa*po)
+  param_B = (pb^2 + 2*pb*po)
+  param_AB = (2*pa*pb)
+  param_O = (po^2)
+  
+  if( !(po >= 0 & po <= 1) | !(pa >= 0 & pb <= 1) | !(pb >= 0 & pb <= 1)
+      | param_A <= 0
+      | param_B <= 0
+      | param_AB <= 0
+      | param_O <= 0 ) {
+    -Inf
+  }
+  else {
+    -1 * (na*log(param_A) + nb*log(param_B) + nab*log(param_AB) + no*log(param_O))
+  }
+}
+
+# found these partial derivatives manually, but I will not use it. just for comparing the result in case of using genD Function
+#Deriv_Qo = function(theta) {
+#  x = theta[1]
+#  y = theta[2]
+#  gr1 = -344*(-x-y+1)/(x^2+2*x*(-x-y+1)) + 86*y/(2*y*(-x-y+1)+y^2) + 558/(-x-y+1) - 11/x
+#  gr2 = 344*x/(x^2+2*x*(-x-y+1)) -86*(-x-y+1)/(2*y*(-x-y+1)+y^2) + 558/(-x-y+1) - 11/y
+#  
+#  c(gr1, gr2)
+#}
+
+Deriv_Qo = function(theta) {
+  pa = theta[1]
+  pb = theta[2]
+  
+  f = function(theta) {
+    pa = theta[1]
+    pb = theta[2]
+    po = 1 - pa - pb
+    
+    -1 * (na*log(pa^2 + 2*pa*po) + nb*log(pb^2 + 2*pb*po) + nab*log(2*pa*pb) + no*log(po^2))
+  }
+  
+  df = genD(f, c(pa, pb))
+  
+  c(df$D[1], df$D[2])
+}
+zo = optim(c(0.3, 0.3), Qo, Deriv_Qo, method = "BFGS")
+#zo$convergence
+#zo$par
+# po = 1-pa-pb
+result_po = 1 - zo$par[1] - zo$par[2]
+
+result = as.data.frame(matrix(c(zo$par[1], zo$par[2], result_po, sum(zo$par[1], zo$par[2], result_po)), nrow = 4))
+row.names(result) = c("P(A)", "P(B)", "P(O)", "Total"); colnames(result) = "BFGS+Deriv Result"
+result
+```
+
+Q3-c
+```{r}
+na = 172
+nb = 43
+nab = 11
+no = 279
+
+#po = (1-pa-pb)
+#theta[1] : pa
+#theta[2] : pb
+# Q = -1 * (na*log(pa^2 + 2*pa*po) + nb*log(pb^2 + 2*pb*po) + nab*log(2*pa*pb) + no*log(po^2))
+Qo2 = function(theta1, theta2) {
+  pa = theta1
+  pb = theta2
+  po = 1 - theta1 - theta2
+  
+  # recycle argument
+  if(length(pa) < length(pb))
+    pa = rep(pa, length = length(pb))
+  if(length(pb) < length(pa))
+    pb = rep(pb, length = length(pa))
+  
+  getParameter = function (index, param){
+    switch (param,
+            param_A = pa[index]^2 + 2*pa[index]*(po[index]),
+            param_B = pb[index]^2 + 2*pb[index]*(po[index]),
+            param_AB = 2*pa[index]*pb[index],
+            param_O = po[index]^2
+    )
+  }
+  
+  # Vector calculation
+  ans = numeric(length(pa))
+  for(i in 1:length(ans)) {
+    if( !(po[i] >= 0 & po[i] <= 1) | !(pa[i] >= 0 & pa[i] <= 1) | !(pb[i] >= 0 & pb[i] <= 1)
+        | getParameter(i, "param_A") <= 0
+        | getParameter(i, "param_B") <= 0
+        | getParameter(i, "param_AB") <= 0
+        | getParameter(i, "param_O") <= 0 ) {
+      ans[i] = -Inf
+    }
+    else {
+      ans[i] = -1 * (na*log(getParameter(i, "param_A")) + nb*log(getParameter(i, "param_B")) + nab*log(getParameter(i, "param_AB")) + no*log(getParameter(i, "param_O")))
+    }
+  }
+  
+  ans
+}
+
+#zo = optim(c(0.3, 0.3), Qo, Deriv_Qo, method = "BFGS")
+#po = (1-pa-pb)
+theta1 = seq(0, .6, length = 60)
+theta2 = seq(0, .3, length = 70)
+z = outer(theta1, theta2, Qo2)
+contour(theta1, theta2, z)
+```
+
